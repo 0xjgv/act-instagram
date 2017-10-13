@@ -5,60 +5,42 @@ const { typeCheck } = require('type-check');
 
 const { log } = console;
 
-// Definition of the input
 const INPUT_TYPE = `{
-  baseUrl: Maybe String,
-  usernames: Maybe [String],
+  baseUrl: String,
+  postsCSSSelectors: String,
+  usernames: [String],
 }`;
 
 const parseUrlFor = baseUrl => input => new URL(input, baseUrl);
 
-async function extractPostInfoFrom(page) {
-  const evalData = await page.evaluate(() => ({
-    currentUrl: location.href,
-    html: document.documentElement.innerHTML,
-    scriptCount: document.querySelectorAll('script').length,
-    allWindowProperties: Object.keys(window)
-  }));
-  log('Eval data:');
-  log(evalData);
-  return evalData;
-}
-
-async function workerFunc(browser, url, baseUrl) {
+async function workerFunc(browser, url, baseUrl, cssSelectors) {
+  let page = null;
+  const urls = [];
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
 
     log(`New browser page for: ${url}`);
     await page.goto(url, { waitUntil: 'networkidle' });
-    await page.waitForSelector('._mck9w._gvoze._f2mse');
+    await page.waitForSelector(cssSelectors);
 
-    const postsUrls = await page.evaluate(() => {
-      const anchors = Array.from(document.querySelectorAll('._mck9w._gvoze._f2mse'));
-      return anchors.map(anchor =>
-        anchor.firstElementChild.getAttribute('href'));
-    });
-    log(postsUrls);
+    const postsUrls = await page.evaluate((selectors) => {
+      const anchors = Array.from(document.querySelectorAll(selectors));
+      return anchors.map(anchor => anchor.firstElementChild.getAttribute('href'));
+    }, cssSelectors);
 
     const addBaseUrl = parseUrlFor(baseUrl);
-    postsUrls.forEach(async (postUrl) => {
-      const parsedUrl = addBaseUrl(postUrl);
-      await page.goto(parsedUrl.href, { waitUntil: 'networkidle' });
-      await page.waitForSelector('._hm7pe');
-      await extractPostInfoFrom(page);
-    });
-
-    await page.close();
+    urls.push(...postsUrls.map(addBaseUrl));
   } catch (error) {
     throw new Error(`The page ${url}, could not be loaded: ${error}`);
   } finally {
-    log('Finished');
+    if (page) {
+      await page.close().catch(error => log(`Error closing page: (${url}): ${error}.`));
+    }
   }
+  return urls;
 }
-const pages = [];
 
 Apify.main(async () => {
-  // Fetch and check the input
   const input = await Apify.getValue('INPUT');
   if (!typeCheck(INPUT_TYPE, input)) {
     log('Expected input:');
@@ -67,9 +49,10 @@ Apify.main(async () => {
     console.dir(input);
     throw new Error('Received invalid input');
   }
+  const { baseUrl, usernames, postsCSSSelectors } = input;
 
-  const parseUrl = parseUrlFor(input.baseUrl);
-  const usersUrls = [].concat(input.usernames.map(parseUrl));
+  const parseUrl = parseUrlFor(baseUrl);
+  const usersUrls = [...usernames.map(parseUrl)];
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
@@ -77,9 +60,12 @@ Apify.main(async () => {
     headless: !!process.env.APIFY_HEADLESS,
   });
   log('New browser window');
-  await workerFunc(browser, usersUrls[0].href, input.baseUrl);
 
-  // Get the state of crawling (the act might have been restarted)
+  const postsUrls = usersUrls.map(url => workerFunc(browser, url.href, baseUrl, postsCSSSelectors));
+  const resolvePromises = await Promise.all(postsUrls);
+  log(resolvePromises);
+
+  // TODO: Get the state of crawling (the act might have been restarted)
   // state = await Apify.getValue('STATE') || DEFAULT_STATE
   await browser.close();
 });
