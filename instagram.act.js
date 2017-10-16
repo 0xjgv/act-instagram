@@ -7,13 +7,14 @@ const { log } = console;
 
 const INPUT_TYPE = `{
   baseUrl: String,
-  postsCSSSelectors: String,
+  cssSelectors: String,
   usernames: [String],
 }`;
 
 const parseUrlFor = baseUrl => input => new URL(input, baseUrl);
+let parseUrl = null;
 
-async function workerFunc(browser, url, baseUrl, cssSelectors) {
+async function extractUrls(browser, url, selectors) {
   let page = null;
   const urls = [];
   try {
@@ -21,15 +22,14 @@ async function workerFunc(browser, url, baseUrl, cssSelectors) {
 
     log(`New browser page for: ${url}`);
     await page.goto(url, { waitUntil: 'networkidle' });
-    await page.waitForSelector(cssSelectors);
-
-    const postsUrls = await page.evaluate((selectors) => {
-      const anchors = Array.from(document.querySelectorAll(selectors));
+    await page.waitForSelector(selectors);
+    const postsUrls = await page.evaluate((cssSelectors) => {
+      const anchors = Array.from(document.querySelectorAll(cssSelectors));
       return anchors.map(anchor => anchor.firstElementChild.getAttribute('href'));
-    }, cssSelectors);
+    }, selectors);
 
-    const addBaseUrl = parseUrlFor(baseUrl);
-    urls.push(...postsUrls.map(addBaseUrl));
+    const parsedPostsUrls = postsUrls.map(parseUrl);
+    urls.push(...parsedPostsUrls);
   } catch (error) {
     throw new Error(`The page ${url}, could not be loaded: ${error}`);
   } finally {
@@ -49,23 +49,26 @@ Apify.main(async () => {
     console.dir(input);
     throw new Error('Received invalid input');
   }
-  const { baseUrl, usernames, postsCSSSelectors } = input;
-
-  const parseUrl = parseUrlFor(baseUrl);
-  const usersUrls = [...usernames.map(parseUrl)];
+  const { baseUrl, usernames, cssSelectors } = input;
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
     args: ['--no-sandbox'],
     headless: !!process.env.APIFY_HEADLESS,
   });
-  log('New browser window');
+  log('New browser window.');
 
-  const postsUrls = usersUrls.map(url => workerFunc(browser, url.href, baseUrl, postsCSSSelectors));
-  const resolvePromises = await Promise.all(postsUrls);
-  log(resolvePromises);
+  parseUrl = parseUrlFor(baseUrl);
+  const parsedUrls = [...usernames.map(parseUrl)];
+  const allExtractedUrls = parsedUrls.map((url) => {
+    const extractedUrl = extractUrls(browser, url.href, cssSelectors);
+    return extractedUrl;
+  });
+  const urls = await Promise.all(allExtractedUrls);
+  log(urls);
 
   // TODO: Get the state of crawling (the act might have been restarted)
   // state = await Apify.getValue('STATE') || DEFAULT_STATE
+  log('Closing browser.');
   await browser.close();
 });

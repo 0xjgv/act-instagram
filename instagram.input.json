@@ -1,6 +1,6 @@
 { 
   "baseUrl": "https://www.instagram.com/",
-  "postsCSSSelectors": "._mck9w._gvoze._f2mse",
+  "cssSelectors": "._mck9w._gvoze._f2mse",
   "usernames": [
     "mcuban",
     "lewishowes",
