@@ -3,7 +3,7 @@ const Apify = require('apify');
 const puppeteer = require('puppeteer');
 const { typeCheck } = require('type-check');
 
-const { log } = console;
+const { log, dir } = console;
 
 const INPUT_TYPE = `{
   baseUrl: String,
@@ -46,7 +46,7 @@ Apify.main(async () => {
     log('Expected input:');
     log(INPUT_TYPE);
     log('Received input:');
-    console.dir(input);
+    dir(input);
     throw new Error('Received invalid input');
   }
   const { baseUrl, usernames, cssSelectors } = input;
