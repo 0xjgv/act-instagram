@@ -53,15 +53,13 @@ Apify.main(async () => {
   uri = `https://api.apify.com/v2/acts/${actId}/runs?token=${token}&${waitForFinish}`;
   log(actId, uri, postCSSSelector);
 
-  const options = {
+  let options = {
     uri,
     method: 'POST',
     'content-type': 'application/json',
     body: input.extractActInput,
     json: true,
   };
-  // Get act, run it and crawl result links
-  // https://www.apify.com/docs/api-v2#/reference/acts/runs-collection/run-act
   const { data } = await requestPromise(options);
   log(data);
 
@@ -69,10 +67,17 @@ Apify.main(async () => {
   const recordKey = 'ALL_LINKS';
   log(storeId);
   uri = `https://api.apify.com/v2/key-value-stores/${storeId}/records/${recordKey}`;
-
   log(uri);
-  const userObjects = await requestPromise(uri);
-  log(userObjects);
+
+  options = {
+    uri,
+    method: 'GET',
+    gzip: true,
+    'content-type': 'application/json',
+    json: true,
+  };
+  const arrayOfUsers = await requestPromise(options);
+  log(JSON.stringify(arrayOfUsers, null, 2));
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
