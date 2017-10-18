@@ -14,22 +14,51 @@ const INPUT_TYPE = `{
 const parseUrlFor = baseUrl => input => new URL(input, baseUrl);
 let parseUrl = null;
 
-async function extractUrls(browser, url, selectors) {
+const results = [];
+
+async function extractUrls(browser, url, selectors, isPost) {
   let page = null;
   const urls = [];
   try {
     page = await browser.newPage();
-
     log(`New browser page for: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle' });
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
     await page.waitForSelector(selectors);
-    const postsUrls = await page.evaluate((cssSelectors) => {
-      const anchors = Array.from(document.querySelectorAll(cssSelectors));
-      return anchors.map(anchor => anchor.firstElementChild.getAttribute('href'));
-    }, selectors);
 
-    const parsedPostsUrls = postsUrls.map(parseUrl);
-    urls.push(...parsedPostsUrls);
+    page.on('error', (err) => {
+      log(`Web page crashed (${url}): ${err}`);
+      page.close().catch(err2 => log(`Error closing page 1 (${url}): ${err2}`));
+    });
+
+    if (isPost) {
+      log('Aqui');
+      const result = await page.evaluate((cssSelectors) => {
+        const target = document.querySelector(cssSelectors);
+        return {
+          post: target.innerHTML,
+        };
+      }, selectors);
+      page.close().catch(error => log(`Error closing page: (${url}): ${error}.`));
+      log('HTML: ', result);
+      results.push(result);
+      urls.push(result);
+    } else {
+      const postsUrls = await page.evaluate((cssSelectors) => {
+        const anchors = Array.from(document.querySelectorAll(cssSelectors));
+        return anchors.map(anchor => anchor.firstElementChild.href);
+      }, selectors);
+      page.close().catch(error => log(`Error closing page: (${url}): ${error}.`));
+
+      const parsedPostsUrls = postsUrls.map(parseUrl);
+      log(parsedPostsUrls);
+      urls.push(...parsedPostsUrls);
+
+      const extractPosts = parsedPostsUrls.map((postUrl) => {
+        const { href } = postUrl;
+        return extractUrls(browser, href, 'article', true);
+      });
+      await Promise.all(extractPosts);
+    }
   } catch (error) {
     throw new Error(`The page ${url}, could not be loaded: ${error}`);
   } finally {
@@ -59,13 +88,13 @@ Apify.main(async () => {
   log('New browser window.');
 
   parseUrl = parseUrlFor(baseUrl);
-  const parsedUrls = [...usernames.map(parseUrl)];
+  const parsedUrls = usernames.map(parseUrl);
   const allExtractedUrls = parsedUrls.map((url) => {
     const extractedUrl = extractUrls(browser, url.href, cssSelectors);
     return extractedUrl;
   });
   const urls = await Promise.all(allExtractedUrls);
-  log(urls);
+  log('Before closing the browser...', urls);
 
   // TODO: Get the state of crawling (the act might have been restarted)
   // state = await Apify.getValue('STATE') || DEFAULT_STATE
