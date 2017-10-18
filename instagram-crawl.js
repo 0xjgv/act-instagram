@@ -1,14 +1,16 @@
 // Crawl links.
 const Apify = require('apify');
 const puppeteer = require('puppeteer');
-const request = require('request-promise');
 const { typeCheck } = require('type-check');
+const requestPromise = require('request-promise');
 
 const { log, dir } = console;
 
 const INPUT_TYPE = `{
   actId: String,
+  token: String,
   postCSSSelector: String,
+  extractActInput: Object
 }`;
 
 async function extractUrls(browser, username, url, cssSelector) {
@@ -37,6 +39,7 @@ async function extractUrls(browser, username, url, cssSelector) {
 }
 
 Apify.main(async () => {
+  let uri = null;
   const input = await Apify.getValue('INPUT');
   if (!typeCheck(INPUT_TYPE, input)) {
     log('Expected input:');
@@ -45,10 +48,29 @@ Apify.main(async () => {
     dir(input);
     throw new Error('Received invalid input');
   }
-  const { actId, postCSSSelector } = input;
+  const { actId, token, postCSSSelector } = input;
+  const waitForFinish = 'waitForFinish=60';
+  uri = `https://api.apify.com/v2/acts/${actId}/runs?token=${token}&${waitForFinish}`;
+  log(actId, uri, postCSSSelector);
+
+  const options = {
+    uri,
+    method: 'POST',
+    'content-type': 'application/json',
+    body: input.extractActInput,
+    json: true,
+  };
   // Get act, run it and crawl result links
   // https://www.apify.com/docs/api-v2#/reference/acts/runs-collection/run-act
-  const data = request('https://api.apify.com/v2/acts/juansgaitan~instagram-extract/runs?token=WS5tRSq9pmnMMCEpsJEvZHhTg');
+  const { data } = await requestPromise(options);
+  log(data);
+
+  const storeId = data.defaultKeyValueStoreId;
+  log(storeId);
+  uri = `https://api.apify.com/v2/key-value-stores/${storeId}?token=${token}`;
+  log(uri);
+  const userObjects = await requestPromise(uri);
+  log(userObjects);
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
@@ -56,15 +78,6 @@ Apify.main(async () => {
     headless: !!process.env.APIFY_HEADLESS,
   });
   log('New browser window.');
-
-  parseUrl = parseUrlFor(baseUrl);
-  const allExtractedUrls = usernames.map((username) => {
-    const { href } = parseUrl(username);
-    return extractUrls(browser, username, href, postCSSSelector);
-  });
-  const urls = await Promise.all(allExtractedUrls);
-  await Apify.setValue('ALL_LINKS', urls);
-  log(urls);
 
   // TODO: Get the state of crawling (the act might have been restarted)
   // state = await Apify.getValue('STATE') || DEFAULT_STATE

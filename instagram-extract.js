@@ -45,15 +45,18 @@ async function extractUrls(browser, username, url, cssSelector) {
 }
 
 Apify.main(async () => {
+  log('Aqui');
   const input = await Apify.getValue('INPUT');
-  if (!typeCheck(INPUT_TYPE, input)) {
-    log('Expected input:');
-    log(INPUT_TYPE);
-    log('Received input:');
-    dir(input);
-    throw new Error('Received invalid input');
-  }
+  log(input);
+  // if (!typeCheck(INPUT_TYPE, input)) {
+  //   log('Expected input:');
+  //   log(INPUT_TYPE);
+  //   log('Received input:');
+  //   dir(input);
+  //   throw new Error('Received invalid input');
+  // }
   const { baseUrl, usernames, postCSSSelector } = input;
+  log(baseUrl, usernames);
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
