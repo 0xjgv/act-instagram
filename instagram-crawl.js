@@ -66,8 +66,10 @@ Apify.main(async () => {
   log(data);
 
   const storeId = data.defaultKeyValueStoreId;
+  const recordKey = 'ALL_LINKS';
   log(storeId);
-  uri = `https://api.apify.com/v2/key-value-stores/${storeId}?token=${token}`;
+  uri = `https://api.apify.com/v2/key-value-stores/${storeId}/records/${recordKey}`;
+
   log(uri);
   const userObjects = await requestPromise(uri);
   log(userObjects);
