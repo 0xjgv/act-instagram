@@ -13,6 +13,8 @@ const INPUT_TYPE = `{
   extractActInput: Object
 }`;
 
+const results = {};
+
 async function crawlUrl(browser, username, url, cssSelector = 'article') {
   let page = null;
   let crawlResult = {};
@@ -21,6 +23,7 @@ async function crawlUrl(browser, username, url, cssSelector = 'article') {
     log(`New browser page for: ${url}`);
     await page.goto(url, { waitUntil: 'networkidle' });
     await page.waitForSelector(cssSelector);
+
     // Crawl page
     const articleHandle = await page.$(cssSelector);
     crawlResult = await page.evaluate((article) => {
@@ -35,7 +38,8 @@ async function crawlUrl(browser, username, url, cssSelector = 'article') {
         'date/time': time,
       };
     }, articleHandle);
-    log('CRAWL RESULT: ', crawlResult);
+
+    results[username].push(crawlResult);
   } catch (error) {
     throw new Error(`The page ${url}, could not be loaded: ${error}`);
   } finally {
@@ -66,8 +70,6 @@ Apify.main(async () => {
 
   const waitForFinish = 'waitForFinish=60';
   uri = `https://api.apify.com/v2/acts/${actId}/runs?token=${token}&${waitForFinish}`;
-  log('REQUESTING ACT-EXTRACT: ', uri);
-
   let options = {
     uri,
     method: 'POST',
@@ -75,15 +77,13 @@ Apify.main(async () => {
     body: extractActInput,
     json: true,
   };
+  log('REQUESTING ACT-EXTRACT...');
   const { data } = await requestPromise(options);
   log('ACT-EXTRACT Run result: ', data);
 
   const storeId = data.defaultKeyValueStoreId;
   const recordKey = 'ALL_LINKS';
-  log('ACT-EXTRACT Store ID: ', storeId);
   uri = `https://api.apify.com/v2/key-value-stores/${storeId}/records/${recordKey}`;
-  log(uri);
-
   options = {
     uri,
     method: 'GET',
@@ -91,7 +91,9 @@ Apify.main(async () => {
     'content-type': 'application/json',
     json: true,
   };
+  log('REQUESTING ACT-EXTRACT STORED RECORD...');
   const arrayOfUsers = await requestPromise(options);
+  log('ACT-Extract Stored record: ', arrayOfUsers);
 
   log('Openning browser...');
   const browser = await puppeteer.launch({
@@ -100,22 +102,17 @@ Apify.main(async () => {
   });
   log('New browser window.');
 
-  const crawlData = arrayOfUsers.map(({ username, postsLinks }) => (
-    postsLinks.reduce((prev, url) => (
+  const crawlData = arrayOfUsers.map(({ username, postsLinks }) => {
+    Object.assign(results, { [username]: [] });
+    return postsLinks.reduce((prev, url) => (
       prev.then(() => crawlUrl(browser, username, url, postCSSSelector))
-    ), Promise.resolve())
-  ));
+    ), Promise.resolve());
+  });
+  await Promise.all(crawlData);
 
-  let results;
-  try {
-    results = await Promise.all(crawlData);
-  } catch (error) {
-    console.log('ERROR: ', error);
-  }
-  log('results', results);
+  log('SETTING OUTPUT RESULT...');
+  await Apify.setValue('OUTPUT', results);
 
-  // TODO: Get the state of crawling (the act might have been restarted)
-  // state = await Apify.getValue('STATE') || DEFAULT_STATE
   log('Closing browser.');
   await browser.close();
 });
