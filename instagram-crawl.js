@@ -1,6 +1,7 @@
 // Crawl links.
 const Apify = require('apify');
 const puppeteer = require('puppeteer');
+const ApifyClient = require('apify-client');
 const { typeCheck } = require('type-check');
 const requestPromise = require('request-promise');
 
@@ -10,10 +11,12 @@ const INPUT_TYPE = `{
   actId: String,
   token: String,
   postCSSSelector: String,
-  extractActInput: Object
+  extractActInput: Object | String
 }`;
 
-const results = {};
+const results = {
+  posts: [],
+};
 
 async function crawlUrl(browser, username, url, cssSelector = 'article') {
   let page = null;
@@ -39,7 +42,7 @@ async function crawlUrl(browser, username, url, cssSelector = 'article') {
       };
     }, articleHandle);
 
-    results[username].push(crawlResult);
+    results['posts'].push(crawlResult);
   } catch (error) {
     throw new Error(`The page ${url}, could not be loaded: ${error}`);
   } finally {
@@ -102,16 +105,41 @@ Apify.main(async () => {
   });
   log('New browser window.');
 
-  const crawlData = arrayOfUsers.map(({ username, postsLinks }) => {
-    Object.assign(results, { [username]: [] });
-    return postsLinks.reduce((prev, url) => (
+  const crawlData = arrayOfUsers.map(({ username, postsLinks }) => (
+    postsLinks.reduce((prev, url) => (
       prev.then(() => crawlUrl(browser, username, url, postCSSSelector))
-    ), Promise.resolve());
-  });
+    ), Promise.resolve())
+  ));
   await Promise.all(crawlData);
 
   log('SETTING OUTPUT RESULT...');
   await Apify.setValue('OUTPUT', results);
+
+  const apifyClient = new ApifyClient({
+    userId: '7e4SJiWuZfFudMsKu',
+    token,
+  });
+
+  const storeName = 'tweets-instagram-posts';
+  const store = await apifyClient.keyValueStores.getOrCreateStore({ storeName });
+  apifyClient.setOptions({ storeId: store.id });
+
+  let record = await apifyClient.keyValueStores.getRecord({ key: storeName });
+  log('GETTING PREVIOUS RECORD: ', record);
+
+  if (record.body && record.body.posts) {
+    record.body.posts = [...record.body.posts, ...results.posts];
+    log(record.body.posts);
+  } else {
+    record = Object.assign({}, results);
+  }
+  log(record);
+
+  await apifyClient.keyValueStores.putRecord({
+    key: storeName,
+    body: JSON.stringify(record, null, 2),
+    contentType: 'application/json',
+  });
 
   log('Closing browser.');
   await browser.close();
