@@ -8,14 +8,15 @@ const { log, dir } = console;
 
 const INPUT_TYPE = `{
   baseUrl: String,
-  postCSSSelector: String,
+  pageFunction: String,
+  waitForCssSelector: String,
   usernames: [String],
 }`;
 
 const parseUrlFor = baseUrl => input => new URL(input, baseUrl);
 let parseUrl = null;
 
-async function extractUrls(browser, username, url, cssSelector) {
+async function extractUrls(browser, username, url, pageFunc, cssSelector) {
   let page = null;
   const result = {
     username,
@@ -27,10 +28,10 @@ async function extractUrls(browser, username, url, cssSelector) {
     await page.goto(url, { waitUntil: 'networkidle' });
     await page.waitForSelector(cssSelector);
 
-    const postsUrls = await page.evaluate((selector) => {
-      const anchors = Array.from(document.querySelectorAll(selector));
-      return anchors.map(anchor => anchor.firstElementChild.getAttribute('href'));
-    }, cssSelector);
+    const postsUrls = await page.evaluate((fn) => {
+      const func = new Function(fn);
+      return func();
+    }, pageFunc);
 
     const parsedPostsUrls = postsUrls.map(parseUrl);
     result.postsLinks.push(...parsedPostsUrls);
@@ -45,17 +46,21 @@ async function extractUrls(browser, username, url, cssSelector) {
 }
 
 Apify.main(async () => {
-  log('Aqui');
   const input = await Apify.getValue('INPUT');
   log(input);
-  // if (!typeCheck(INPUT_TYPE, input)) {
-  //   log('Expected input:');
-  //   log(INPUT_TYPE);
-  //   log('Received input:');
-  //   dir(input);
-  //   throw new Error('Received invalid input');
-  // }
-  const { baseUrl, usernames, postCSSSelector } = input;
+  if (!typeCheck(INPUT_TYPE, input)) {
+    log('Expected input:');
+    log(INPUT_TYPE);
+    log('Received input:');
+    dir(input);
+    throw new Error('Received invalid input');
+  }
+  const {
+    baseUrl,
+    usernames,
+    pageFunction,
+    waitForCssSelector,
+  } = input;
   log(baseUrl, usernames);
 
   log('Openning browser...');
@@ -68,14 +73,12 @@ Apify.main(async () => {
   parseUrl = parseUrlFor(baseUrl);
   const allExtractedUrls = usernames.map((username) => {
     const { href } = parseUrl(username);
-    return extractUrls(browser, username, href, postCSSSelector);
+    return extractUrls(browser, username, href, pageFunction, waitForCssSelector);
   });
   const urls = await Promise.all(allExtractedUrls);
   await Apify.setValue('ALL_LINKS', urls);
   log(urls);
 
-  // TODO: Get the state of crawling (the act might have been restarted)
-  // state = await Apify.getValue('STATE') || DEFAULT_STATE
   log('Closing browser.');
   await browser.close();
 });
